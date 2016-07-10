@@ -133,7 +133,17 @@ function VEditor(query){
 		'get': $.Callbacks(),
 		'run': $.Callbacks(),
 		'end': $.Callbacks()
-	}
+	};
+
+	Object.observe(widgetRect, function(changes){
+		var css = {};
+		changes.forEach(function(change){
+			if(/(width|height|left|top)/.test(change.name)){
+				css[change.name] = widgetRect[change.name];
+			}
+		});
+		console.log(css);
+	})
 
 	function Move(e){
 		widgetRect.left = Math.min(P.width() - W.T.width(), Math.max(0, e.clientX - (mouseStartPos.left - widgetPos.left)));
