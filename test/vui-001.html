@@ -1,0 +1,226 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<title></title>
+<script type="text/javascript" src="../lib/jquery-3.0.0.min.js"></script>
+<style type="text/css">
+
+body{
+	background-color: #444;
+	margin: 13px;
+	user-select: none;
+	-webkit-user-select: none;
+}
+
+#panel{
+	width: 600px;
+	height: 300px;
+	background-color: #ccc;
+	margin-left: 37px;
+	position: relative;
+}
+
+[vui-type]{
+	background-color: #888;
+	position: absolute;
+}
+
+[vui-type="container"]{
+	width: 75px;
+	height: 50px;
+}
+[vui-type="move"]{
+	left: 13px;
+	right: 13px;
+	top: 13px;
+	bottom: 13px;
+	background-color: #f00;
+}
+[vui-type="resize"]{
+	right: 3px;
+	bottom: 3px;
+	width: 10px;
+	height: 10px;
+	background-color: #ff0;
+}
+
+</style>
+</head>
+<body>
+
+<div id="panel">
+	<div vui-type="container">
+		<div vui-type="move"></div>
+		<div vui-type="resize"></div>
+	</div>
+</div>
+
+<script type="text/javascript">
+function EACH(arr, callback){
+	var i = 0, r;
+	while(i < arr.length){
+		if(r = callback(arr[i], i, arr)) return r;
+		i++;
+	}
+	return undefined;
+};
+//InvokerGroup
+	function InvokerGroup(context){
+		this.callbacks = {};
+		this.context = context;
+	}
+	InvokerGroup.prototype = {
+		on: function(name, callback){
+			if(typeof(callback) != 'function') return;
+			if(!this.has(name)){
+				this.callbacks[name] = [];
+			}
+			this.callbacks[name].push(callback);
+			return this;
+		},
+		has: function(name){
+			return name in this.callbacks;
+		},
+		findIndex: function(name, f){
+			if(!this.has(name)) return -1;
+			return this.callbacks[name].findIndex(function(cb){
+				return cb === f;
+			});
+		},
+		no: function(name, cb){
+			var idx = this.findIndex(name, cb);
+			if(idx > -1){
+				this.callbacks[name].splice(idx, 1);
+				return true;
+			}
+		},
+		fire: function(name){
+			if(!this.has(name)){
+				return;
+			}
+			var args = Array.prototype.slice.call(arguments, 1);
+			var ctx = this.context;
+			var i = EACH(this.callbacks[name], function(cb, i){
+				return cb.apply(ctx, args);
+			});
+			return i;
+		},
+		dispose: function(){
+			EACH(this.callbacks, function(cbs, n, C){
+				cbs.splice(0, cbs.length);
+				delete C[n];
+			});
+			delete this.callbacks;
+		}
+	};
+
+
+//VUI Confiture
+	var VUI = {
+		attribute: 'vui-type',
+		containerTypeName: 'container',
+		moveTypeName: 'move',
+		resizeTypeName: 'resize',
+		eventGetName: 'mousedown',
+		eventMoveName: 'mousemove',
+		eventEndName: 'mouseup'
+	};
+
+	var UTIL = {
+		eventPosition: function(e){
+			return {
+				left: e.clientX,
+				top: e.clientY
+			}
+		}
+	};
+
+	if('ontouchstart' in document){
+		VUI.eventGetName = 'touchstart';
+		VUI.eventMoveName = 'touchmove';
+		VUI.eventEndName = 'touchend';
+	}
+
+//Widget
+	function Widget(target){
+		if(!target.hasAttribute(VUI.attribute)) return null;
+		var r = { t: target.getAttribute(VUI.attribute) };
+		if(Widget.IsContainer(target)){
+			r.T = $(target);
+			r.t = '.';
+		} else if(Widget.IsContainer(target.parentNode)) {
+			r.T = $(target.parentNode);
+		} else {
+			r = false;
+		}
+		return r;
+	}
+	Widget.IsContainer = function(dom){
+		return dom && dom.getAttribute(VUI.attribute) === VUI.containerTypeName;
+	};
+	Widget.Equal = function(wa, wb){
+		if(!wa || !wb) return false;
+		return wa.T[0] === wb.T[0];
+	};
+
+
+function VEditor(query){
+	var doc = $(document);
+	var P = $(query);
+	var events = new InvokerGroup(P);
+	var W_ = null, W
+		, widgetPos, mouseStartPos
+		, widgetWidth, widgetHeight
+		, widgetRect = {};
+		;
+
+	function Move(e){
+		widgetRect.left = Math.min(P.width() - W.T.width(), Math.max(0, e.clientX - (mouseStartPos.left - widgetPos.left)));
+		widgetRect.top = Math.min(P.height() - W.T.height(), Math.max(0, e.clientY - (mouseStartPos.top - widgetPos.top)));
+		W.T.css(widgetRect);
+		events.fire('move', W.T, widgetRect);
+	}
+	function Resize(e){
+		var pos = UTIL.eventPosition(e);
+		pos.left -= mouseStartPos.left;
+		pos.top -= mouseStartPos.top;
+		widgetRect.width = Math.min(P.width() - widgetPos.left, Math.max(0, widgetWidth + pos.left));
+		widgetRect.height = Math.min(P.height() - widgetPos.top, Math.max(0, widgetHeight + pos.top));
+		W.T.css(widgetRect);
+		events.fire('resize', W.T, widgetRect);
+	}
+
+	P.bind(VUI.eventGetName, function(e){
+		e.stopPropagation();
+		W = Widget(e.target);
+		if(W){
+			widgetPos = W.T.position();
+			mouseStartPos = UTIL.eventPosition(e);
+			switch(W.t){
+				case VUI.moveTypeName:
+					doc.bind(VUI.eventMoveName, Move);
+					break;
+				case VUI.resizeTypeName:
+					widgetWidth = W.T.width();
+					widgetHeight = W.T.height();
+					doc.bind(VUI.eventMoveName, Resize);
+					break;
+			}
+		}
+		W_ = W;
+	});
+	doc.bind(VUI.eventEndName, function(e){
+		e.stopPropagation();
+		doc.unbind(VUI.eventMoveName, Move);
+		doc.unbind(VUI.eventMoveName, Resize);
+	});
+}
+
+var editor = VEditor('#panel');
+
+
+</script>
+
+</body>
+</html>
